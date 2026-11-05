@@ -1,6 +1,7 @@
 using Atlas.Application.Abstractions;
 using Atlas.Application.Services;
 using Atlas.Domain.Repositories;
+using Atlas.Infrastructure.Caching;
 using Atlas.Infrastructure.Persistence;
 using Atlas.Infrastructure.Persistence.Repositories.Application;
 using Atlas.Infrastructure.Persistence.Repositories.Audit;
@@ -22,8 +23,7 @@ public static class DependencyInjection
         if (string.IsNullOrWhiteSpace(sqlConnectionString))
         {
             throw new InvalidOperationException(
-                "CRITICAL: MS SQL Server connection string 'DefaultConnection' is missing in configuration. " +
-                "Atlas requires Microsoft SQL Server (e.g. 'Server=localhost,1433;Database=AtlasDb;User Id=sa;Password=Local_Dev_Password_1;TrustServerCertificate=True;').");
+                "CRITICAL: MS SQL Server connection string 'DefaultConnection' is missing in configuration. ");
         }
 
         services.AddDbContext<AtlasDbContext>(options =>
@@ -40,6 +40,15 @@ public static class DependencyInjection
         // Repositories
         services.AddScoped<IApplicationRepository, ApplicationRepository>();
         services.AddScoped<IAuditRepository, AuditRepository>();
+
+        // Redis Distributed Cache
+        var redisConnectionString = configuration.GetConnectionString("Redis") ?? "localhost:6379";
+        services.AddStackExchangeRedisCache(options =>
+        {
+            options.Configuration = redisConnectionString;
+            options.InstanceName = "Atlas_";
+        });
+        services.AddSingleton<ICacheService, RedisCacheService>();
 
         // Providers & Stubs
         services.AddSingleton<IIdentityVerificationProvider, MockIdNowProvider>();

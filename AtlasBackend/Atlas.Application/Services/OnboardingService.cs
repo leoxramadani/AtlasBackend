@@ -17,7 +17,8 @@ public class OnboardingService(
     ISanctionsScreeningProvider worldCheckProvider,
     IAuditRepository auditRepository,
     ICoreBankingService coreBankingService,
-    ICardIssuanceService cardIssuanceService) : IOnboardingService
+    ICardIssuanceService cardIssuanceService,
+    ICacheService cacheService) : IOnboardingService
 {
     private readonly IApplicationRepository _applicationRepository = applicationRepository;
     private readonly IIdentityVerificationProvider _idNowProvider = idNowProvider;
@@ -25,6 +26,7 @@ public class OnboardingService(
     private readonly IAuditRepository _auditRepository = auditRepository;
     private readonly ICoreBankingService _coreBankingService = coreBankingService;
     private readonly ICardIssuanceService _cardIssuanceService = cardIssuanceService;
+    private readonly ICacheService _cacheService = cacheService;
 
     // Submits a new onboarding application, performing identity verification and sanctions screening, and returns the application response.
     #region Submit application
@@ -109,7 +111,9 @@ public class OnboardingService(
         if (application.Status == ApplicationStatus.Rejected)
         {
             await _applicationRepository.UpdateAsync(application, cancellationToken);
-            return ToResponse(application);
+            var rejectedResponse = ToResponse(application);
+            await _cacheService.SetAsync($"application:{application.Id}", rejectedResponse, TimeSpan.FromMinutes(5), cancellationToken);
+            return rejectedResponse;
         }
 
         // Step 2: Sanctions & PEP screening (World-Check)
@@ -137,7 +141,9 @@ public class OnboardingService(
         }
 
         await _applicationRepository.UpdateAsync(application, cancellationToken);
-        return ToResponse(application);
+        var response = ToResponse(application);
+        await _cacheService.SetAsync($"application:{application.Id}", response, TimeSpan.FromMinutes(5), cancellationToken);
+        return response;
     }
     #endregion
 
@@ -149,6 +155,20 @@ public class OnboardingService(
         RequestContext context,
         CancellationToken cancellationToken = default)
     {
+        var cacheKey = $"application:{id}";
+        var cached = await _cacheService.GetAsync<ApplicationResponse>(cacheKey, cancellationToken);
+        if (cached != null)
+        {
+            await _auditRepository.AddAsync(new AuditLogEntry(
+                id,
+                context.AttributedActor,
+                AuditAction.ApplicationRead,
+                "Application details retrieved (from Redis cache)."
+            ), cancellationToken);
+
+            return cached;
+        }
+
         var application = await _applicationRepository.GetByIdAsync(id, cancellationToken);
         if (application == null) return null;
 
@@ -160,7 +180,10 @@ public class OnboardingService(
             "Application details retrieved."
         ), cancellationToken);
 
-        return ToResponse(application);
+        var response = ToResponse(application);
+        await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5), cancellationToken);
+
+        return response;
     }
     #endregion
 
@@ -191,7 +214,9 @@ public class OnboardingService(
         }
 
         await _applicationRepository.UpdateAsync(application, cancellationToken);
-        return ToResponse(application);
+        var response = ToResponse(application);
+        await _cacheService.SetAsync($"application:{application.Id}", response, TimeSpan.FromMinutes(5), cancellationToken);
+        return response;
     }
     #endregion
 
@@ -214,6 +239,7 @@ public class OnboardingService(
             $"Customer personal data erased under GDPR Right to Erasure request."
         ), cancellationToken);
 
+        await _cacheService.RemoveAsync($"application:{id}", cancellationToken);
         await _applicationRepository.UpdateAsync(application, cancellationToken);
         return true;
     }
@@ -254,7 +280,9 @@ public class OnboardingService(
         }
 
         await _applicationRepository.UpdateAsync(application, cancellationToken);
-        return ToResponse(application);
+        var response = ToResponse(application);
+        await _cacheService.SetAsync($"application:{application.Id}", response, TimeSpan.FromMinutes(5), cancellationToken);
+        return response;
     }
 
     // Retrieves all applications that are currently pending manual review, returning them as a list of ApplicationResponse DTOs.
