@@ -1,6 +1,5 @@
 using Atlas.Application.DTOs;
 using Atlas.Application.Services;
-using Atlas.Domain.Audit;
 using Atlas.Domain.Repositories;
 using Microsoft.AspNetCore.Mvc;
 
@@ -55,16 +54,6 @@ public class ComplianceController : ControllerBase
     [HttpGet("audit-logs/{id:guid}")]
     public async Task<IActionResult> GetAuditLogs(Guid id, CancellationToken cancellationToken)
     {
-        var logs = await _auditRepository.GetByApplicationIdAsync(id, cancellationToken);
-        return Ok(logs.Select(l => new
-        {
-            l.Id,
-            l.ApplicationId,
-            l.PerformedBy,
-            Action = l.Action.ToString(),
-            l.Details,
-            l.CreatedAtUtc,
-            l.RetainUntilUtc
-        }));
+        return Ok(await _auditRepository.GetAuditLogs(id, cancellationToken));
     }
 }

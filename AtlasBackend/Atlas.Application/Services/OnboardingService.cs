@@ -11,31 +11,23 @@ using System.Text;
 
 namespace Atlas.Application.Services;
 
-public class OnboardingService : IOnboardingService
+public class OnboardingService(
+    IApplicationRepository applicationRepository,
+    IIdentityVerificationProvider idNowProvider,
+    ISanctionsScreeningProvider worldCheckProvider,
+    IAuditRepository auditRepository,
+    ICoreBankingService coreBankingService,
+    ICardIssuanceService cardIssuanceService) : IOnboardingService
 {
-    private readonly IApplicationRepository _applicationRepository;
-    private readonly IIdentityVerificationProvider _idNowProvider;
-    private readonly ISanctionsScreeningProvider _worldCheckProvider;
-    private readonly IAuditRepository _auditRepository;
-    private readonly ICoreBankingService _coreBankingService;
-    private readonly ICardIssuanceService _cardIssuanceService;
+    private readonly IApplicationRepository _applicationRepository = applicationRepository;
+    private readonly IIdentityVerificationProvider _idNowProvider = idNowProvider;
+    private readonly ISanctionsScreeningProvider _worldCheckProvider = worldCheckProvider;
+    private readonly IAuditRepository _auditRepository = auditRepository;
+    private readonly ICoreBankingService _coreBankingService = coreBankingService;
+    private readonly ICardIssuanceService _cardIssuanceService = cardIssuanceService;
 
-    public OnboardingService(
-        IApplicationRepository applicationRepository,
-        IIdentityVerificationProvider idNowProvider,
-        ISanctionsScreeningProvider worldCheckProvider,
-        IAuditRepository auditRepository,
-        ICoreBankingService coreBankingService,
-        ICardIssuanceService cardIssuanceService)
-    {
-        _applicationRepository = applicationRepository;
-        _idNowProvider = idNowProvider;
-        _worldCheckProvider = worldCheckProvider;
-        _auditRepository = auditRepository;
-        _coreBankingService = coreBankingService;
-        _cardIssuanceService = cardIssuanceService;
-    }
-
+    // Submits a new onboarding application, performing identity verification and sanctions screening, and returns the application response.
+    #region Submit application
     public async Task<ApplicationResponse> SubmitApplicationAsync(
         SubmitApplicationRequest request,
         RequestContext context,
@@ -147,25 +139,11 @@ public class OnboardingService : IOnboardingService
         await _applicationRepository.UpdateAsync(application, cancellationToken);
         return ToResponse(application);
     }
+    #endregion
 
-    private async Task ProvisionAccountAndCardAsync(
-    OnboardingApplication application,
-    RequestContext context,
-    CancellationToken cancellationToken)
-    {
-        var account = await _coreBankingService.OpenAccountAsync(application.Id, application.Market.ToString(), cancellationToken);
-        var card = await _cardIssuanceService.OrderCardAsync(application.Id, account, cancellationToken);
 
-        application.ProvisionAccountAndCard(account, card);
-
-        await _auditRepository.AddAsync(new AuditLogEntry(
-            application.Id,
-            context.AttributedActor,
-            AuditAction.AccountProvisioned,
-            $"Core banking account {account} opened and card {card} ordered."
-        ), cancellationToken);
-    }
-
+    // Retrieves an application by its ID, returning an ApplicationResponse DTO if found, or null if not found. It also records the read access in the audit log.
+    #region Get Application
     public async Task<ApplicationResponse?> GetApplicationAsync(
         Guid id,
         RequestContext context,
@@ -184,22 +162,11 @@ public class OnboardingService : IOnboardingService
 
         return ToResponse(application);
     }
+    #endregion
 
-    private static ApplicationResponse ToResponse(OnboardingApplication app)
-    {
-        return new ApplicationResponse(
-            ApplicationId: app.Id,
-            Status: app.Status.ToString().ToUpperInvariant(),
-            Market: app.Market.ToString(),
-            RejectionReason: app.RejectionReason,
-            AccountNumber: app.AccountNumber,
-            CardReference: app.CardReference,
-            RequiresManualReview: app.Status == ApplicationStatus.PendingManualReview,
-            RequiresBranchVisit: app.Status == ApplicationStatus.PendingBranchVisit,
-            CreatedAtUtc: app.CreatedAtUtc
-        );
-    }
 
+    // branch visit and manual review methods
+    #region Branch Visit and Manual Review
     public async Task<ApplicationResponse> RecordBranchVisitAsync(
     Guid id,
     BranchVisitRequest request,
@@ -226,7 +193,10 @@ public class OnboardingService : IOnboardingService
         await _applicationRepository.UpdateAsync(application, cancellationToken);
         return ToResponse(application);
     }
+    #endregion
 
+    //request ensures that the application is not in a terminal state (Approved or Rejected) before proceeding with erasure
+    #region Request Erasure
     public async Task<bool> RequestErasureAsync(
         Guid id,
         RequestContext context,
@@ -247,20 +217,24 @@ public class OnboardingService : IOnboardingService
         await _applicationRepository.UpdateAsync(application, cancellationToken);
         return true;
     }
+    #endregion
 
+
+    // Retrieves all applications that are currently pending manual review, returning them as a list of ApplicationResponse DTOs.
+    #region Pending Reviews
     public async Task<IReadOnlyList<ApplicationResponse>> GetPendingReviewsAsync(
     RequestContext context,
     CancellationToken cancellationToken = default)
     {
         var list = await _applicationRepository.GetPendingManualReviewsAsync(cancellationToken);
-        return list.Select(ToResponse).ToList();
+        return [.. list.Select(ToResponse)];
     }
+    #endregion
 
-    public async Task<ApplicationResponse> ResolveManualReviewAsync(
-    Guid id,
-    ManualReviewRequest request,
-    RequestContext context,
-    CancellationToken cancellationToken = default)
+
+    #region Helpers
+    // Resolves a manual review for a specific application, either approving or rejecting it based on the provided request. It updates the application status, records the action in the audit log, and provisions an account and card if approved.
+    public async Task<ApplicationResponse> ResolveManualReviewAsync(Guid id, ManualReviewRequest request, RequestContext context, CancellationToken cancellationToken = default)
     {
         var application = await _applicationRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new DomainException($"Application {id} not found.");
@@ -282,5 +256,42 @@ public class OnboardingService : IOnboardingService
         await _applicationRepository.UpdateAsync(application, cancellationToken);
         return ToResponse(application);
     }
+
+    // Retrieves all applications that are currently pending manual review, returning them as a list of ApplicationResponse DTOs.
+    private static ApplicationResponse ToResponse(OnboardingApplication app)
+    {
+        return new ApplicationResponse(
+            ApplicationId: app.Id,
+            Status: app.Status.ToString().ToUpperInvariant(),
+            Market: app.Market.ToString(),
+            RejectionReason: app.RejectionReason,
+            AccountNumber: app.AccountNumber,
+            CardReference: app.CardReference,
+            RequiresManualReview: app.Status == ApplicationStatus.PendingManualReview,
+            RequiresBranchVisit: app.Status == ApplicationStatus.PendingBranchVisit,
+            CreatedAtUtc: app.CreatedAtUtc
+        );
+    }
+
+    // Provisions a core banking account and orders a card for the approved application, recording the action in the audit log.
+    private async Task ProvisionAccountAndCardAsync(
+    OnboardingApplication application,
+    RequestContext context,
+    CancellationToken cancellationToken)
+    {
+        var account = await _coreBankingService.OpenAccountAsync(application.Id, application.Market.ToString(), cancellationToken);
+        var card = await _cardIssuanceService.OrderCardAsync(application.Id, account, cancellationToken);
+
+        application.ProvisionAccountAndCard(account, card);
+
+        await _auditRepository.AddAsync(new AuditLogEntry(
+            application.Id,
+            context.AttributedActor,
+            AuditAction.AccountProvisioned,
+            $"Core banking account {account} opened and card {card} ordered."
+        ), cancellationToken);
+    }
+
+    #endregion
 
 }

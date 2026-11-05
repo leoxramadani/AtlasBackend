@@ -1,9 +1,8 @@
-using Atlas.Domain.Audit;
 using Atlas.Domain.Model.Applications;
 using Atlas.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
 
-namespace Atlas.Infrastructure.Persistence.Repositories;
+namespace Atlas.Infrastructure.Persistence.Repositories.Application;
 
 public class ApplicationRepository : IApplicationRepository
 {
@@ -44,26 +43,3 @@ public class ApplicationRepository : IApplicationRepository
 }
 
 
-public class AuditRepository : IAuditRepository
-{
-    private readonly AtlasDbContext _context;
-
-    public AuditRepository(AtlasDbContext context)
-    {
-        _context = context;
-    }
-
-    public async Task AddAsync(AuditLogEntry entry, CancellationToken cancellationToken = default)
-    {
-        await _context.AuditLogs.AddAsync(entry, cancellationToken);
-        await _context.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<AuditLogEntry>> GetByApplicationIdAsync(Guid applicationId, CancellationToken cancellationToken = default)
-    {
-        return await _context.AuditLogs
-            .Where(l => l.ApplicationId == applicationId)
-            .OrderBy(l => l.CreatedAtUtc)
-            .ToListAsync(cancellationToken);
-    }
-}
