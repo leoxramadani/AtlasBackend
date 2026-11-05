@@ -248,4 +248,39 @@ public class OnboardingService : IOnboardingService
         return true;
     }
 
+    public async Task<IReadOnlyList<ApplicationResponse>> GetPendingReviewsAsync(
+    RequestContext context,
+    CancellationToken cancellationToken = default)
+    {
+        var list = await _applicationRepository.GetPendingManualReviewsAsync(cancellationToken);
+        return list.Select(ToResponse).ToList();
+    }
+
+    public async Task<ApplicationResponse> ResolveManualReviewAsync(
+    Guid id,
+    ManualReviewRequest request,
+    RequestContext context,
+    CancellationToken cancellationToken = default)
+    {
+        var application = await _applicationRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new DomainException($"Application {id} not found.");
+
+        application.ResolveManualReview(request.Approve, request.ReviewedBy, request.Notes);
+
+        await _auditRepository.AddAsync(new AuditLogEntry(
+            application.Id,
+            context.AttributedActor,
+            AuditAction.ManualReviewProcessed,
+            $"Manual review resolved by {request.ReviewedBy}. Approved={request.Approve}. Notes: {request.Notes}"
+        ), cancellationToken);
+
+        if (application.Status == ApplicationStatus.Approved)
+        {
+            await ProvisionAccountAndCardAsync(application, context, cancellationToken);
+        }
+
+        await _applicationRepository.UpdateAsync(application, cancellationToken);
+        return ToResponse(application);
+    }
+
 }

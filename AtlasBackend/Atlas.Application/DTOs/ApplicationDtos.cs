@@ -35,3 +35,8 @@ public record RequestContext(
 public record BranchVisitRequest(
     string OfficerName,
     DateTime? CompletedAtUtc = null);
+
+public record ManualReviewRequest(
+    bool Approve,
+    string ReviewedBy,
+    string Notes);

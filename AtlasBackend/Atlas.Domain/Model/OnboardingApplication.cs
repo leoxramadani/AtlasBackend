@@ -151,4 +151,24 @@ public class OnboardingApplication : AggregateRoot
             doc.Anonymize();
         }
     }
+
+    public void ResolveManualReview(bool approved, string reviewedBy, string notes)
+    {
+        if (Status != ApplicationStatus.PendingManualReview)
+        {
+            throw new InvalidApplicationStateException($"Cannot review application in status {Status}. Must be {ApplicationStatus.PendingManualReview}.");
+        }
+
+        ComplianceReviewedBy = reviewedBy;
+        ComplianceReviewNotes = notes;
+        ComplianceReviewedAtUtc = DateTime.UtcNow;
+
+        if (!approved)
+        {
+            Reject($"Compliance manual review rejected by {reviewedBy}: {notes}");
+            return;
+        }
+
+        ProceedToAccountActivation();
+    }
 }
