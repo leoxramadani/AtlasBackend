@@ -1,0 +1,46 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Rider / ReSharper
+.idea/
+_ReSharper*/
+*.DotSettings.user
+
+# Test results and coverage
+TestResults/
+*.trx
+coverage/
+.coverage
+.coveragexml
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+
+# ASP.NET / .NET local files
+*.csproj.user
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated documentation
+/Documentation/
