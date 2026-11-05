@@ -140,4 +140,15 @@ public class OnboardingApplication : AggregateRoot
         BranchVisitCompletedAtUtc = completedAtUtc;
         Status = ApplicationStatus.Approved;
     }
+
+    public void ApplyRightToErasure()
+    {
+        // GDPR Right to erasure (Compliance GC-2026-0814 #5)
+        // Redacts personal customer data while maintaining the AML retention application shell & timestamps
+        Applicant.ErasePersonalData();
+        foreach (var doc in _documents)
+        {
+            doc.Anonymize();
+        }
+    }
 }

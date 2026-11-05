@@ -22,7 +22,11 @@ public class Document
         ContentHash = contentHash;
         StorageReference = storageReference;
     }
-
+    public void Anonymize()
+    {
+        ContentHash = "ANONYMIZED_GDPR_ERASURE";
+        StorageReference = null;
+    }
 }
 
 public class Applicant
@@ -58,5 +62,16 @@ public class Applicant
         Phone = phone;
         TermsAccepted = termsAccepted;
         IsErased = false;
+    }
+
+    public void ErasePersonalData()
+    {
+        FirstName = "[ERASED]";
+        LastName = "[ERASED]";
+        NationalId = null;
+        PassportNumber = null;
+        Email = "erased@customer.gdpr";
+        Phone = "[ERASED]";
+        IsErased = true;
     }
 }

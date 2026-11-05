@@ -59,4 +59,25 @@ public class ApplicationsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Exercise GDPR Right to Erasure (Compliance Notice GC-2026-0814 #5)
+    /// </summary>
+    [HttpDelete("{id:guid}/erasure")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RequestErasure(
+        Guid id,
+        [FromHeader(Name = "X-Caller-Id")] string? callerId,
+        CancellationToken cancellationToken)
+    {
+        var context = new RequestContext(
+            AttributedActor: string.IsNullOrWhiteSpace(callerId) ? "dpo-gdpr-officer" : callerId
+        );
+
+        var success = await _onboardingService.RequestErasureAsync(id, context, cancellationToken);
+        if (!success) return NotFound();
+
+        return NoContent();
+    }
+
 }

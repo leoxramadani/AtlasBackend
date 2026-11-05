@@ -226,4 +226,26 @@ public class OnboardingService : IOnboardingService
         await _applicationRepository.UpdateAsync(application, cancellationToken);
         return ToResponse(application);
     }
+
+    public async Task<bool> RequestErasureAsync(
+        Guid id,
+        RequestContext context,
+        CancellationToken cancellationToken = default)
+    {
+        var application = await _applicationRepository.GetByIdAsync(id, cancellationToken);
+        if (application == null) return false;
+
+        application.ApplyRightToErasure();
+
+        await _auditRepository.AddAsync(new AuditLogEntry(
+            application.Id,
+            context.AttributedActor,
+            AuditAction.RightToErasureExercised,
+            $"Customer personal data erased under GDPR Right to Erasure request."
+        ), cancellationToken);
+
+        await _applicationRepository.UpdateAsync(application, cancellationToken);
+        return true;
+    }
+
 }
