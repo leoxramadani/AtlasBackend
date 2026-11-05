@@ -109,18 +109,6 @@ public class OnboardingService(
         CancellationToken cancellationToken = default)
     {
         var cacheKey = $"application:{id}";
-        var cached = await _cacheService.GetAsync<ApplicationResponse>(cacheKey, cancellationToken);
-        if (cached != null)
-        {
-            await _auditRepository.AddAsync(new AuditLogEntry(
-                id,
-                context.AttributedActor,
-                AuditAction.ApplicationRead,
-                "Application details retrieved (from Redis cache)."
-            ), cancellationToken);
-
-            return cached;
-        }
 
         var application = await _applicationRepository.GetByIdAsync(id, cancellationToken);
         if (application == null) return null;

@@ -2,5 +2,6 @@
   <Project Path="Atlas.Application/Atlas.Application.csproj" />
   <Project Path="Atlas.Domain/Atlas.Domain.csproj" />
   <Project Path="Atlas.Infrastructure/Atlas.Infrastructure.csproj" />
+  <Project Path="Atlas.Tests/Atlas.Tests.csproj" Id="ddb40528-9935-4a59-8b46-0372a365f297" />
   <Project Path="AtlasBackend/Atlas.Api.csproj" />
 </Solution>
