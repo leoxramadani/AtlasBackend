@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MassTransit.RabbitMQ" Version="9.2.5" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.33" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.33" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.11" />

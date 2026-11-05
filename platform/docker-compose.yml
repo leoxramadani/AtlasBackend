@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: atlas-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=Local_Dev_Password_1
+    ports:
+      - "1433:1433"
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    container_name: atlas-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: atlas-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP protocol
+      - "15672:15672"  # RabbitMQ Management Web UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    restart: unless-stopped
+
+  seq:
+    image: datalust/seq:latest
+    container_name: atlas-seq
+    environment:
+      - ACCEPT_EULA=Y
+    ports:
+      - "5341:80"
+    restart: unless-stopped
+

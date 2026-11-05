@@ -1,4 +1,5 @@
 using Atlas.Application.Abstractions;
+using Atlas.Application.Contracts;
 using Atlas.Application.DTOs;
 using Atlas.Domain.Audit;
 using Atlas.Domain.Exceptions;
@@ -13,22 +14,16 @@ namespace Atlas.Application.Services;
 
 public class OnboardingService(
     IApplicationRepository applicationRepository,
-    IIdentityVerificationProvider idNowProvider,
-    ISanctionsScreeningProvider worldCheckProvider,
     IAuditRepository auditRepository,
-    ICoreBankingService coreBankingService,
-    ICardIssuanceService cardIssuanceService,
-    ICacheService cacheService) : IOnboardingService
+    ICacheService cacheService,
+    IEventBus eventBus) : IOnboardingService
 {
     private readonly IApplicationRepository _applicationRepository = applicationRepository;
-    private readonly IIdentityVerificationProvider _idNowProvider = idNowProvider;
-    private readonly ISanctionsScreeningProvider _worldCheckProvider = worldCheckProvider;
     private readonly IAuditRepository _auditRepository = auditRepository;
-    private readonly ICoreBankingService _coreBankingService = coreBankingService;
-    private readonly ICardIssuanceService _cardIssuanceService = cardIssuanceService;
     private readonly ICacheService _cacheService = cacheService;
+    private readonly IEventBus _eventBus = eventBus;
 
-    // Submits a new onboarding application, performing identity verification and sanctions screening, and returns the application response.
+    // Submits a new onboarding application, persists it in Submitted state, and publishes ApplicationSubmittedEvent for asynchronous processing.
     #region Submit application
     public async Task<ApplicationResponse> SubmitApplicationAsync(
         SubmitApplicationRequest request,
@@ -89,64 +84,22 @@ public class OnboardingService(
             $"Application created for Market {market} with {documents.Count} documents."
         ), cancellationToken);
 
-        //id verification and sanctions screening
-        application.StartIdentityVerification();
-        var idNowRequest = new IdentityVerificationRequest(
-            DocumentType: DocumentType.Passport,
-            DocumentImageBase64: request.Documents?.FirstOrDefault(d => d.Type.Equals("PASSPORT", StringComparison.OrdinalIgnoreCase))?.Image,
+        // Publish event to RabbitMQ for asynchronous identity verification and sanctions screening
+        await _eventBus.PublishAsync(new ApplicationSubmittedEvent(
+            ApplicationId: application.Id,
+            Market: market.ToString(),
+            PassportImageBase64: request.Documents?.FirstOrDefault(d => d.Type.Equals("PASSPORT", StringComparison.OrdinalIgnoreCase))?.Image,
             SelfieImageBase64: request.Documents?.FirstOrDefault(d => d.Type.Equals("SELFIE", StringComparison.OrdinalIgnoreCase))?.Image,
-            OverrideOutcome: context.IdNowOverride
-        );
-
-        var idNowResult = await _idNowProvider.VerifyAsync(idNowRequest, cancellationToken);
-        application.RecordIdentityVerification(idNowResult);
-
-        await _auditRepository.AddAsync(new AuditLogEntry(
-            application.Id,
-            context.AttributedActor,
-            AuditAction.IdentityVerificationPerformed,
-            $"IDNow verification: Status={idNowResult.ResultStatus}, FaceMatch={idNowResult.FaceMatch}, Conf={idNowResult.Confidence}"
+            IdNowOverride: context.IdNowOverride,
+            WorldCheckOverride: context.WorldCheckOverride,
+            AttributedActor: context.AttributedActor
         ), cancellationToken);
 
-        if (application.Status == ApplicationStatus.Rejected)
-        {
-            await _applicationRepository.UpdateAsync(application, cancellationToken);
-            var rejectedResponse = ToResponse(application);
-            await _cacheService.SetAsync($"application:{application.Id}", rejectedResponse, TimeSpan.FromMinutes(5), cancellationToken);
-            return rejectedResponse;
-        }
-
-        // Step 2: Sanctions & PEP screening (World-Check)
-        var wcRequest = new SanctionsScreeningRequest(
-            FullName: $"{request.FirstName} {request.LastName}",
-            DateOfBirth: dob,
-            Nationality: request.Country,
-            OverrideOutcome: context.WorldCheckOverride
-        );
-
-        var wcResult = await _worldCheckProvider.ScreenAsync(wcRequest, cancellationToken);
-        application.RecordSanctionsScreening(wcResult);
-
-        await _auditRepository.AddAsync(new AuditLogEntry(
-            application.Id,
-            context.AttributedActor,
-            AuditAction.SanctionsScreeningPerformed,
-            $"World-Check screening: Status={wcResult.Status}, MatchDetails={wcResult.MatchDetails}"
-        ), cancellationToken);
-
-        //if approved, provision core banking account and order card
-        if (application.Status == ApplicationStatus.Approved)
-        {
-            await ProvisionAccountAndCardAsync(application, context, cancellationToken);
-        }
-
-        await _applicationRepository.UpdateAsync(application, cancellationToken);
-        var response = ToResponse(application);
+        var response = application.ToResponse();
         await _cacheService.SetAsync($"application:{application.Id}", response, TimeSpan.FromMinutes(5), cancellationToken);
         return response;
     }
     #endregion
-
 
     // Retrieves an application by its ID, returning an ApplicationResponse DTO if found, or null if not found. It also records the read access in the audit log.
     #region Get Application
@@ -180,21 +133,20 @@ public class OnboardingService(
             "Application details retrieved."
         ), cancellationToken);
 
-        var response = ToResponse(application);
+        var response = application.ToResponse();
         await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5), cancellationToken);
 
         return response;
     }
     #endregion
 
-
     // branch visit and manual review methods
     #region Branch Visit and Manual Review
     public async Task<ApplicationResponse> RecordBranchVisitAsync(
-    Guid id,
-    BranchVisitRequest request,
-    RequestContext context,
-    CancellationToken cancellationToken = default)
+        Guid id,
+        BranchVisitRequest request,
+        RequestContext context,
+        CancellationToken cancellationToken = default)
     {
         var application = await _applicationRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new DomainException($"Application {id} not found.");
@@ -210,17 +162,21 @@ public class OnboardingService(
 
         if (application.Status == ApplicationStatus.Approved)
         {
-            await ProvisionAccountAndCardAsync(application, context, cancellationToken);
+            await _eventBus.PublishAsync(new ApplicationApprovedEvent(
+                ApplicationId: application.Id,
+                Market: application.Market.ToString(),
+                AttributedActor: context.AttributedActor
+            ), cancellationToken);
         }
 
         await _applicationRepository.UpdateAsync(application, cancellationToken);
-        var response = ToResponse(application);
+        var response = application.ToResponse();
         await _cacheService.SetAsync($"application:{application.Id}", response, TimeSpan.FromMinutes(5), cancellationToken);
         return response;
     }
     #endregion
 
-    //request ensures that the application is not in a terminal state (Approved or Rejected) before proceeding with erasure
+    // Request ensures that the application is not in a terminal state (Approved or Rejected) before proceeding with erasure
     #region Request Erasure
     public async Task<bool> RequestErasureAsync(
         Guid id,
@@ -245,22 +201,24 @@ public class OnboardingService(
     }
     #endregion
 
-
     // Retrieves all applications that are currently pending manual review, returning them as a list of ApplicationResponse DTOs.
     #region Pending Reviews
     public async Task<IReadOnlyList<ApplicationResponse>> GetPendingReviewsAsync(
-    RequestContext context,
-    CancellationToken cancellationToken = default)
+        RequestContext context,
+        CancellationToken cancellationToken = default)
     {
         var list = await _applicationRepository.GetPendingManualReviewsAsync(cancellationToken);
-        return [.. list.Select(ToResponse)];
+        return [.. list.Select(a => a.ToResponse())];
     }
     #endregion
 
-
     #region Helpers
     // Resolves a manual review for a specific application, either approving or rejecting it based on the provided request. It updates the application status, records the action in the audit log, and provisions an account and card if approved.
-    public async Task<ApplicationResponse> ResolveManualReviewAsync(Guid id, ManualReviewRequest request, RequestContext context, CancellationToken cancellationToken = default)
+    public async Task<ApplicationResponse> ResolveManualReviewAsync(
+        Guid id,
+        ManualReviewRequest request,
+        RequestContext context,
+        CancellationToken cancellationToken = default)
     {
         var application = await _applicationRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new DomainException($"Application {id} not found.");
@@ -276,50 +234,17 @@ public class OnboardingService(
 
         if (application.Status == ApplicationStatus.Approved)
         {
-            await ProvisionAccountAndCardAsync(application, context, cancellationToken);
+            await _eventBus.PublishAsync(new ApplicationApprovedEvent(
+                ApplicationId: application.Id,
+                Market: application.Market.ToString(),
+                AttributedActor: context.AttributedActor
+            ), cancellationToken);
         }
 
         await _applicationRepository.UpdateAsync(application, cancellationToken);
-        var response = ToResponse(application);
+        var response = application.ToResponse();
         await _cacheService.SetAsync($"application:{application.Id}", response, TimeSpan.FromMinutes(5), cancellationToken);
         return response;
     }
-
-    // Retrieves all applications that are currently pending manual review, returning them as a list of ApplicationResponse DTOs.
-    private static ApplicationResponse ToResponse(OnboardingApplication app)
-    {
-        return new ApplicationResponse(
-            ApplicationId: app.Id,
-            Status: app.Status.ToString().ToUpperInvariant(),
-            Market: app.Market.ToString(),
-            RejectionReason: app.RejectionReason,
-            AccountNumber: app.AccountNumber,
-            CardReference: app.CardReference,
-            RequiresManualReview: app.Status == ApplicationStatus.PendingManualReview,
-            RequiresBranchVisit: app.Status == ApplicationStatus.PendingBranchVisit,
-            CreatedAtUtc: app.CreatedAtUtc
-        );
-    }
-
-    // Provisions a core banking account and orders a card for the approved application, recording the action in the audit log.
-    private async Task ProvisionAccountAndCardAsync(
-    OnboardingApplication application,
-    RequestContext context,
-    CancellationToken cancellationToken)
-    {
-        var account = await _coreBankingService.OpenAccountAsync(application.Id, application.Market.ToString(), cancellationToken);
-        var card = await _cardIssuanceService.OrderCardAsync(application.Id, account, cancellationToken);
-
-        application.ProvisionAccountAndCard(account, card);
-
-        await _auditRepository.AddAsync(new AuditLogEntry(
-            application.Id,
-            context.AttributedActor,
-            AuditAction.AccountProvisioned,
-            $"Core banking account {account} opened and card {card} ordered."
-        ), cancellationToken);
-    }
-
     #endregion
-
 }
