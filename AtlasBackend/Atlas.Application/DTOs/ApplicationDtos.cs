@@ -31,3 +31,7 @@ public record RequestContext(
     string AttributedActor,
     string? IdNowOverride = null,
     string? WorldCheckOverride = null);
+
+public record BranchVisitRequest(
+    string OfficerName,
+    DateTime? CompletedAtUtc = null);

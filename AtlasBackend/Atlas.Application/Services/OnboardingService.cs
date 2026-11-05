@@ -199,4 +199,31 @@ public class OnboardingService : IOnboardingService
             CreatedAtUtc: app.CreatedAtUtc
         );
     }
+
+    public async Task<ApplicationResponse> RecordBranchVisitAsync(
+    Guid id,
+    BranchVisitRequest request,
+    RequestContext context,
+    CancellationToken cancellationToken = default)
+    {
+        var application = await _applicationRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new DomainException($"Application {id} not found.");
+
+        application.RecordBranchVisit(request.OfficerName, request.CompletedAtUtc ?? DateTime.UtcNow);
+
+        await _auditRepository.AddAsync(new AuditLogEntry(
+            application.Id,
+            context.AttributedActor,
+            AuditAction.BranchVisitRecorded,
+            $"In-person branch visit verified by officer {request.OfficerName} for Market MD."
+        ), cancellationToken);
+
+        if (application.Status == ApplicationStatus.Approved)
+        {
+            await ProvisionAccountAndCardAsync(application, context, cancellationToken);
+        }
+
+        await _applicationRepository.UpdateAsync(application, cancellationToken);
+        return ToResponse(application);
+    }
 }

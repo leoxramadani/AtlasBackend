@@ -129,4 +129,15 @@ public class OnboardingApplication : AggregateRoot
             throw new InvalidApplicationStateException($"Application {Id} is already in a terminal state ({Status}).");
         }
     }
+
+    public void RecordBranchVisit(string branchOfficer, DateTime completedAtUtc)
+    {
+        if (Status != ApplicationStatus.PendingBranchVisit)
+        {
+            throw new InvalidApplicationStateException($"Application is not pending branch visit (Status: {Status}).");
+        }
+
+        BranchVisitCompletedAtUtc = completedAtUtc;
+        Status = ApplicationStatus.Approved;
+    }
 }

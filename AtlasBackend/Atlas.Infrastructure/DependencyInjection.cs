@@ -38,6 +38,7 @@ public static class DependencyInjection
 
         // Repositories
         services.AddScoped<IApplicationRepository, ApplicationRepository>();
+        services.AddScoped<IAuditRepository, AuditRepository>();
 
         // Providers & Stubs
         services.AddSingleton<IIdentityVerificationProvider, MockIdNowProvider>();
