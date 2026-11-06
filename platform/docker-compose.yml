@@ -34,6 +34,7 @@ services:
     container_name: atlas-seq
     environment:
       - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORD=Local_Dev_Seq_Password_1
     ports:
       - "5341:80"
     restart: unless-stopped
