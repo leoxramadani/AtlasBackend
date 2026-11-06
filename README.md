@@ -11,6 +11,10 @@ Atlas is an enterprise-grade digital banking onboarding backend built with **.NE
 
 ---
 
+# Diagram of the whole solution and its' structure
+<img width="8502" height="9177" alt="diagram" src="https://github.com/user-attachments/assets/f5fde8c0-aeea-4ad5-b822-1002772e1479" />
+
+
 ## Table of Contents
 
 - [Architectural Decisions & Rationale](#architectural-decisions--rationale)
